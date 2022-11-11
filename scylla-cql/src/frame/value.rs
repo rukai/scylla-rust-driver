@@ -235,6 +235,33 @@ impl<'a> Iterator for SerializedValuesIterator<'a> {
 //
 
 // Implement Value for primitive types
+
+// TODO: u8??
+
+impl Value for u16 {
+    fn serialize(&self, buf: &mut Vec<u8>) -> Result<(), ValueTooBig> {
+        buf.put_i32(2);
+        buf.put_u16(*self);
+        Ok(())
+    }
+}
+
+impl Value for u32 {
+    fn serialize(&self, buf: &mut Vec<u8>) -> Result<(), ValueTooBig> {
+        buf.put_i32(4);
+        buf.put_u32(*self);
+        Ok(())
+    }
+}
+
+impl Value for u64 {
+    fn serialize(&self, buf: &mut Vec<u8>) -> Result<(), ValueTooBig> {
+        buf.put_i32(8);
+        buf.put_u64(*self);
+        Ok(())
+    }
+}
+
 impl Value for i8 {
     fn serialize(&self, buf: &mut Vec<u8>) -> Result<(), ValueTooBig> {
         buf.put_i32(1);
