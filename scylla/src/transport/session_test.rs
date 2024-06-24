@@ -2885,3 +2885,36 @@ async fn test_manual_primary_key_computation() {
         .await;
     }
 }
+
+#[cfg(cassandra_tests)]
+#[tokio::test]
+async fn test_vector_type() {
+    setup_tracing();
+    let session = create_new_session_builder().build().await.unwrap();
+    let ks = unique_keyspace_name();
+
+    session.query(format!("CREATE KEYSPACE IF NOT EXISTS {} WITH REPLICATION = {{'class' : 'NetworkTopologyStrategy', 'replication_factor' : 1}}", ks), &[]).await.unwrap();
+    session
+        .query(
+            format!(
+                "CREATE TABLE IF NOT EXISTS {}.t (a int PRIMARY KEY, b vector<int, 4>, c vector<text, 2>)",
+                ks
+            ),
+            &[],
+        )
+        .await
+        .unwrap();
+
+    session
+        .query(
+            format!(
+                "INSERT INTO {}.t (a, b, c) VALUES (1, [1, 2, 3, 4], ['foo', 'bar'])",
+                ks
+            ),
+            &[],
+        )
+        .await
+        .unwrap();
+
+    // TODO: Implement and test SELECT statements
+}

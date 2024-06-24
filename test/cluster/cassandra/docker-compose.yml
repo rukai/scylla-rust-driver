@@ -10,12 +10,12 @@ networks:
         - subnet: 172.42.0.0/16
 services:
   cassandra1:
-    image: cassandra
+    image: cassandra:5.0-beta1
     healthcheck:
-        test: ["CMD", "cqlsh", "-e", "describe keyspaces" ]
-        interval: 5s
-        timeout: 5s
-        retries: 60
+      test: [ "CMD", "cqlsh", "-e", "describe keyspaces" ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
     networks:
       public:
         ipv4_address: 172.42.0.2
@@ -24,12 +24,12 @@ services:
       - HEAP_NEWSIZE=512M
       - MAX_HEAP_SIZE=2048M
   cassandra2:
-    image: cassandra
+    image: cassandra:5.0-beta1
     healthcheck:
-        test: ["CMD", "cqlsh", "-e", "describe keyspaces" ]
-        interval: 5s
-        timeout: 5s
-        retries: 60
+      test: [ "CMD", "cqlsh", "-e", "describe keyspaces" ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
     networks:
       public:
         ipv4_address: 172.42.0.3
@@ -42,12 +42,12 @@ services:
       cassandra1:
         condition: service_healthy
   cassandra3:
-    image: cassandra
+    image: cassandra:5.0-beta1
     healthcheck:
-        test: ["CMD", "cqlsh", "-e", "describe keyspaces" ]
-        interval: 5s
-        timeout: 5s
-        retries: 60
+      test: [ "CMD", "cqlsh", "-e", "describe keyspaces" ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
     networks:
       public:
         ipv4_address: 172.42.0.4

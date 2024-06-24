@@ -184,6 +184,10 @@ enum PreCqlType {
         type_: PreCollectionType,
     },
     Tuple(Vec<PreCqlType>),
+    Vector {
+        type_: Box<PreCqlType>,
+        size: u16,
+    },
     UserDefinedType {
         frozen: bool,
         name: String,
@@ -207,6 +211,10 @@ impl PreCqlType {
                     .map(|t| t.into_cql_type(keyspace_name, udts))
                     .collect(),
             ),
+            PreCqlType::Vector { type_, size } => CqlType::Vector {
+                type_: Box::new(type_.into_cql_type(keyspace_name, udts)),
+                size,
+            },
             PreCqlType::UserDefinedType { frozen, name } => {
                 let definition = match udts
                     .get(keyspace_name)
@@ -232,6 +240,10 @@ pub enum CqlType {
         type_: CollectionType,
     },
     Tuple(Vec<CqlType>),
+    Vector {
+        type_: Box<CqlType>,
+        size: u16,
+    },
     UserDefinedType {
         frozen: bool,
         // Using Arc here in order not to have many copies of the same definition
@@ -1093,6 +1105,7 @@ fn topo_sort_udts(udts: &mut Vec<UdtRowWithParsedFieldTypes>) -> Result<(), Quer
             PreCqlType::Tuple(types) => types
                 .iter()
                 .for_each(|type_| do_with_referenced_udts(what, type_)),
+            PreCqlType::Vector { type_, .. } => do_with_referenced_udts(what, type_),
             PreCqlType::UserDefinedType { name, .. } => what(name),
         }
     }
@@ -1602,6 +1615,28 @@ fn parse_cql_type(p: ParserState<'_>) -> ParseResult<(PreCqlType, ParserState<'_
         })?;
 
         Ok((PreCqlType::Tuple(types), p))
+    } else if let Ok(p) = p.accept("vector<") {
+        let (inner_type, p) = parse_cql_type(p)?;
+
+        let p = p.skip_white();
+        let p = p.accept(",")?;
+        let p = p.skip_white();
+
+        let (size, p) = p.take_while(|c| c.is_numeric());
+        let size = size.parse().map_err(|_| {
+            p.error(ParseErrorCause::Other(
+                "Expected integer but found non-numeric character",
+            ))
+        })?;
+
+        let p = p.accept(">")?;
+
+        let typ = PreCqlType::Vector {
+            type_: Box::new(inner_type),
+            size,
+        };
+
+        Ok((typ, p))
     } else if let Ok((typ, p)) = parse_native_type(p) {
         Ok((PreCqlType::Native(typ), p))
     } else if let Ok((name, p)) = parse_user_defined_type(p) {
@@ -1786,6 +1821,20 @@ mod tests {
                     PreCqlType::Native(NativeType::BigInt),
                     PreCqlType::Native(NativeType::Varint),
                 ]),
+            ),
+            (
+                "vector<int, 5>",
+                PreCqlType::Vector {
+                    type_: Box::new(PreCqlType::Native(NativeType::Int)),
+                    size: 5,
+                },
+            ),
+            (
+                "vector<text, 1234>",
+                PreCqlType::Vector {
+                    type_: Box::new(PreCqlType::Native(NativeType::Text)),
+                    size: 1234,
+                },
             ),
             (
                 "com.scylladb.types.AwesomeType",
