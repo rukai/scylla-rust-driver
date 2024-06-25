@@ -108,6 +108,7 @@ pub enum CqlValue {
     Tuple(Vec<Option<CqlValue>>),
     Uuid(Uuid),
     Varint(CqlVarint),
+    Vector(Vec<CqlValue>),
 }
 
 impl<'a> TableSpec<'a> {
@@ -379,6 +380,7 @@ impl CqlValue {
         match self {
             Self::List(s) => Some(s),
             Self::Set(s) => Some(s),
+            Self::Vector(s) => Some(s),
             _ => None,
         }
     }
@@ -643,6 +645,104 @@ fn deser_prepared_metadata(buf: &mut &[u8]) -> StdResult<PreparedMetadata, Parse
     })
 }
 
+// for vector type type_str will look like:
+// org.apache.cassandra.db.marshal.VectorType(org.apache.cassandra.db.marshal.Int32Type , 4)
+fn custom_type(type_str: &str, buf: &[u8]) -> StdResult<CqlValue, ParseError> {
+    let mut left_bracket_split = type_str.split('(');
+    let ty = left_bracket_split
+        .next()
+        .expect("split always returns at least one");
+    let remainder = left_bracket_split.next().ok_or_else(|| {
+        ParseError::BadIncomingData(format!(
+            "Invalid custom type, no data after '(' in custom type: {type_str}"
+        ))
+    })?;
+    let mut right_bracket_split = remainder.split(')');
+    let args = right_bracket_split
+        .next()
+        .expect("split always returns at least one");
+    let extra_data = right_bracket_split.next().ok_or_else(|| {
+        ParseError::BadIncomingData(format!(
+            "Invalid custom type, ')' missing after '(' in custom type: {type_str}"
+        ))
+    })?;
+    if !extra_data.is_empty() {
+        return Err(ParseError::BadIncomingData(format!(
+            "Extra data {extra_data:?} found after type in {type_str}"
+        )));
+    }
+
+    match ty {
+        "org.apache.cassandra.db.marshal.VectorType" => {
+            let mut args = args.split(',');
+            let vector_type = args
+                .next()
+                .expect("split always returns at least one")
+                .trim();
+            let vector_size = args
+                .next()
+                .ok_or_else(|| {
+                    ParseError::BadIncomingData(format!(
+                        "Invalid custom type, no data after '(' in custom type: {type_str}"
+                    ))
+                })?
+                .trim();
+            let vector_size: u16 = vector_size.parse().map_err(|_| {
+                ParseError::BadIncomingData(format!(
+                    "Failed to parse {vector_size} into u16 while parsing custom type {type_str}"
+                ))
+            })?;
+
+            let mut vector = vec![];
+            for i in 0..vector_size as usize {
+                let value = match vector_type {
+                    "org.apache.cassandra.db.marshal.ShortType" => {
+                        CqlValue::SmallInt(
+                            i16::deserialize(
+                                &ColumnType::SmallInt,
+                                // shorts are encoded with a length prefix even though ints are not...
+                                Some(FrameSlice::new_borrowed(&buf[i * 3..][1..3])),
+                            )
+                            .unwrap(),
+                            //TODO: unwrap
+                        )
+                    }
+                    "org.apache.cassandra.db.marshal.Int32Type" => {
+                        CqlValue::Int(
+                            i32::deserialize(
+                                &ColumnType::Int,
+                                Some(FrameSlice::new_borrowed(&buf[i * 4..][0..4])),
+                            )
+                            .unwrap(),
+                            //TODO: unwrap
+                        )
+                    }
+                    "org.apache.cassandra.db.marshal.UTF8Type" => {
+                        CqlValue::Text(
+                            String::deserialize(
+                                &ColumnType::Text,
+                                Some(FrameSlice::new_borrowed(&buf[1..4])),
+                            )
+                            .unwrap(),
+                            //TODO: unwrap
+                        )
+                    }
+                    other => {
+                        return Err(ParseError::BadIncomingData(format!(
+                            "Unknown vector type {other} in custom type {type_str}"
+                        )))
+                    }
+                };
+                vector.push(value);
+            }
+            Ok(CqlValue::Vector(vector))
+        }
+        other => Err(ParseError::BadIncomingData(format!(
+            "Unknown custom type name {other}"
+        ))),
+    }
+}
+
 pub fn deser_cql_value(typ: &ColumnType, buf: &mut &[u8]) -> StdResult<CqlValue, ParseError> {
     use ColumnType::*;
 
@@ -661,12 +761,7 @@ pub fn deser_cql_value(typ: &ColumnType, buf: &mut &[u8]) -> StdResult<CqlValue,
     let v = Some(FrameSlice::new_borrowed(buf));
 
     Ok(match typ {
-        Custom(type_str) => {
-            return Err(ParseError::BadIncomingData(format!(
-                "Support for custom types is not yet implemented: {}",
-                type_str
-            )));
-        }
+        Custom(type_str) => custom_type(type_str, buf)?,
         Ascii => {
             let s = String::deserialize(typ, v)?;
             CqlValue::Ascii(s)

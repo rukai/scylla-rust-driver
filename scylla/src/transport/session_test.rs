@@ -28,7 +28,7 @@ use assert_matches::assert_matches;
 use bytes::Bytes;
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
-use scylla_cql::frame::response::result::ColumnType;
+use scylla_cql::frame::response::result::{ColumnType, CqlValue};
 use scylla_cql::types::serialize::row::{SerializeRow, SerializedValues};
 use scylla_cql::types::serialize::value::SerializeValue;
 use std::collections::BTreeSet;
@@ -2886,7 +2886,6 @@ async fn test_manual_primary_key_computation() {
     }
 }
 
-#[cfg(cassandra_tests)]
 #[tokio::test]
 async fn test_vector_type() {
     setup_tracing();
@@ -2897,7 +2896,7 @@ async fn test_vector_type() {
     session
         .query(
             format!(
-                "CREATE TABLE IF NOT EXISTS {}.t (a int PRIMARY KEY, b vector<int, 4>, c vector<text, 2>)",
+                "CREATE TABLE IF NOT EXISTS {}.t (a int PRIMARY KEY, b vector<int, 4>, c vector<smallint, 4>, d vector<text, 2>)",
                 ks
             ),
             &[],
@@ -2908,7 +2907,7 @@ async fn test_vector_type() {
     session
         .query(
             format!(
-                "INSERT INTO {}.t (a, b, c) VALUES (1, [1, 2, 3, 4], ['foo', 'bar'])",
+                "INSERT INTO {}.t (a, b, c, d) VALUES (1, [1, 2, 3, 4], [1, 2, 3, 4], ['foo', 'bar'])",
                 ks
             ),
             &[],
@@ -2916,5 +2915,34 @@ async fn test_vector_type() {
         .await
         .unwrap();
 
-    // TODO: Implement and test SELECT statements
+    let (col1, col2, col3, col4): (i32, Vec<CqlValue>, Vec<CqlValue>, Vec<CqlValue>) = session
+        .query(format!("SELECT * FROM {}.t", ks), &[])
+        .await
+        .unwrap()
+        .single_row_typed()
+        .unwrap();
+
+    assert_eq!(col1, 1);
+    assert_eq!(
+        col2,
+        vec!(
+            CqlValue::Int(1),
+            CqlValue::Int(2),
+            CqlValue::Int(3),
+            CqlValue::Int(4)
+        )
+    );
+    assert_eq!(
+        col3,
+        vec!(
+            CqlValue::SmallInt(1),
+            CqlValue::SmallInt(2),
+            CqlValue::SmallInt(3),
+            CqlValue::SmallInt(4)
+        )
+    );
+    assert_eq!(
+        col4,
+        vec!(CqlValue::Text("foo".into()), CqlValue::Text("bar".into()))
+    );
 }

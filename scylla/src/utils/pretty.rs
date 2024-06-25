@@ -147,6 +147,7 @@ where
                 .fmt(f)?;
                 f.write_str("}")?;
             }
+            CqlValue::Vector(v) => todo!(),
         }
         Ok(())
     }

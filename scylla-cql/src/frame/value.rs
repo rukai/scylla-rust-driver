@@ -1431,6 +1431,7 @@ impl Value for CqlValue {
             CqlValue::Varint(v) => v.serialize(buf),
 
             CqlValue::Empty => serialize_empty(buf),
+            CqlValue::Vector(v) => todo!(),
         }
     }
 }
